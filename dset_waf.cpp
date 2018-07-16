@@ -8,10 +8,14 @@
 #include <xercesc/sax/SAXParseException.hpp>
 #include <xercesc/validators/common/Grammar.hpp>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <signal.h>
 #include <strutils.hpp>
 #include <utils.hpp>
 #include <datetime.hpp>
 #include <metadata.hpp>
+#include <metadata_export.hpp>
 #include <tokendoc.hpp>
 #include <myerror.hpp>
 
@@ -28,6 +32,20 @@ struct LocalArgs {
   std::vector<std::string> git_repos;
   bool queued_only,all_non_public;
 } local_args;
+struct TimerThreadStruct {
+  TimerThreadStruct() : timeout(0),tid(0),validator_tid(),timed_out() {}
+
+  size_t timeout;
+  pthread_t tid,validator_tid;
+  bool timed_out;
+};
+struct ValidatorThreadStruct {
+  ValidatorThreadStruct() : file_name(),uflag(),parse_error(),tid(0),load_alternate_schema(false) {}
+
+  std::string file_name,uflag,parse_error;
+  pthread_t tid;
+  bool load_alternate_schema;
+};
 
 class ParserErrorHandler : public xercesc_3_1::ErrorHandler
 {
@@ -39,7 +57,7 @@ public:
     if (!parse_error.empty()) {
 	parse_error+="\n";
     }
-    parse_error+="Warning: "+std::string(msg);
+    parse_error+="Warning ("+strutils::itos(e.getLineNumber())+":"+strutils::itos(e.getColumnNumber())+"): "+std::string(msg);
     xercesc_3_1::XMLString::release(&msg);
   }
   void error(const xercesc_3_1::SAXParseException& e) {
@@ -47,7 +65,7 @@ public:
     if (!parse_error.empty()) {
 	parse_error+="\n";
     }
-    parse_error+="Error: "+std::string(msg);
+    parse_error+="Error ("+strutils::itos(e.getLineNumber())+":"+strutils::itos(e.getColumnNumber())+"): "+std::string(msg);
     xercesc_3_1::XMLString::release(&msg);
   }
   void fatalError(const xercesc_3_1::SAXParseException& e) {
@@ -55,7 +73,7 @@ public:
     if (!parse_error.empty()) {
 	parse_error+="\n";
     }
-    parse_error+="Fatal error: "+std::string(msg);
+    parse_error+="Fatal error ("+strutils::itos(e.getLineNumber())+":"+strutils::itos(e.getColumnNumber())+"): "+std::string(msg);
     xercesc_3_1::XMLString::release(&msg);
   }
   void resetErrors() {
@@ -64,8 +82,19 @@ public:
   std::string parse_error;
 };
 
-bool validated(std::string file_name,std::string& parse_error)
+extern "C" void *run_timer(void *tts)
 {
+  TimerThreadStruct *t=(TimerThreadStruct *)tts;
+  t->timed_out=false;
+  sleep(t->timeout);
+  t->timed_out=true;
+  pthread_cancel(t->validator_tid);
+  return nullptr;
+}
+
+extern "C" void *run_validator(void *vts)
+{
+  ValidatorThreadStruct *t=(ValidatorThreadStruct *)vts;
   static xercesc_3_1::XercesDOMParser *parser=nullptr;
   static ParserErrorHandler *parserErrorHandler;
   if (parser == nullptr) {
@@ -79,30 +108,53 @@ bool validated(std::string file_name,std::string& parse_error)
     parser->cacheGrammarFromParse(true);
     parser->setErrorHandler(parserErrorHandler);
   }
+  else if (t->load_alternate_schema) {
+    delete parser;
+    parser=new xercesc_3_1::XercesDOMParser;
+    parserErrorHandler=new ParserErrorHandler;
+    parser->setValidationScheme(xercesc_3_1::XercesDOMParser::Val_Auto);
+    parser->setDoNamespaces(true);
+    parser->setDoSchema(true);
+    parser->setValidationConstraintFatal(true);
+    parser->cacheGrammarFromParse(true);
+    parser->setErrorHandler(parserErrorHandler);
+parser->setExternalSchemaLocation("http://www.isotc211.org/2005/gmd /usr/local/www/server_root/web/metadata/schemas/iso/gmd/gmd.xsd");
+  }
   parserErrorHandler->parse_error="";
-  parser->parse(file_name.c_str());
+  parser->parse(t->file_name.c_str());
   if (parserErrorHandler->parse_error.empty()) {
-    return true;
+    t->parse_error="";
   }
   else {
-    parse_error=parserErrorHandler->parse_error;
-    return false;
+    t->parse_error=parserErrorHandler->parse_error;
   }
+  return nullptr;
 }
 
 void do_push(const std::deque<std::string>& arg_list)
 {
   MySQL::Server server(meta_directives.database_server,"metadata","metadata","");
-  std::unordered_set<std::string> queued_datasets;
+  std::unordered_set<std::string> work_in_progress_datasets,queued_datasets;
   if (local_args.queued_only) {
-    MySQL::LocalQuery query("dsid","metautil.dset_waf","uflag = ''");
+    MySQL::LocalQuery query("dsid","search.datasets","type = 'W'");
     if (query.submit(server) != 0) {
-	metautils::log_error("Database error while getting queued datasets: '"+query.error()+"'","dset_waf",user);
+	metautils::log_error("Database error while getting work-in-progress datasets: '"+query.error()+"'","dset_waf",user);
 	exit(1);
     }
     MySQL::Row row;
     while (query.fetch_row(row)) {
-	queued_datasets.emplace(row[0]);
+	work_in_progress_datasets.emplace(row[0]);
+    }
+    query.set("dsid","metautil.dset_waf","uflag = ''");
+    if (query.submit(server) != 0) {
+	metautils::log_error("Database error while getting queued datasets: '"+query.error()+"'","dset_waf",user);
+	exit(1);
+    }
+    while (query.fetch_row(row)) {
+	if (work_in_progress_datasets.find(row[0]) == work_in_progress_datasets.end()) {
+// ignore work-in-progress datasets
+	  queued_datasets.emplace(row[0]);
+	}
     }
     if (queued_datasets.size() == 0) {
 // no datasets currently in the queue, so no work to do
@@ -159,7 +211,7 @@ void do_push(const std::deque<std::string>& arg_list)
 	}
     }
   }
-  static const std::string LOCAL_WAF="/glade/scratch/dattore";
+  static const std::string LOCAL_WAF="/gpfs/fs1/scratch/dattore";
   for (const auto& dsid : dsids) {
     std::string fname=LOCAL_WAF+"/waf-ds"+dsid+".xml";
     std::ofstream ofs;
@@ -177,14 +229,42 @@ void do_push(const std::deque<std::string>& arg_list)
 	ofs << metadata_record.str().substr(0,date_time_index+14) << dateutils::current_date_time().to_string("%Y-%m-%dT%H:%MM:%SS") << metadata_record.str().substr(date_time_index+33) << std::endl;
 	ofs.close();
 	ofs.clear();
-	std::string parse_error;
-	if (!validated(fname,parse_error)) {
-	  metautils::log_error(dsid+" - XML validation failed; error(s) follow:\n"+parse_error+"\nuflag was '"+uflag+"'","dset_waf",user);
+	ValidatorThreadStruct vts;
+	vts.file_name=fname;
+	vts.uflag=uflag;
+	vts.load_alternate_schema=false;
+	pthread_create(&vts.tid,NULL,run_validator,&vts);
+	TimerThreadStruct tts;
+	tts.timeout=180;
+	tts.validator_tid=vts.tid;
+	pthread_create(&tts.tid,NULL,run_timer,&tts);
+	pthread_join(vts.tid,NULL);
+	pthread_cancel(tts.tid);
+	if (tts.timed_out) {
+	  vts.load_alternate_schema=true;
+	  pthread_create(&vts.tid,NULL,run_validator,&vts);
+	  tts.timeout=180;
+	  pthread_create(&tts.tid,NULL,run_timer,&tts);
+	  pthread_join(vts.tid,NULL);
+	  pthread_cancel(tts.tid);
+	}
+	if (tts.timed_out) {
+	  metautils::log_error("parser timed out for flag '"+uflag+"'","dset_waf",user);
+	}
+	else if (!vts.parse_error.empty()) {
+	  metautils::log_error(dsid+" - XML validation failed; error(s) follow:\n"+vts.parse_error+"\nuflag was '"+uflag+"'","dset_waf",user);
 	}
     }
   }
   static const std::string REPO_HEAD="/data/ptmp/dattore/git-repos";
   for (const auto& repo : local_args.git_repos) {
+    std::stringstream oss,ess;
+    unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git stash; git pull -q\"",oss,ess);
+// 'git stash list' to see list of stashes
+// may need to do a 'git stash drop "stash@{0}"'?
+    if (!ess.str().empty()) {
+	metautils::log_error("git pull error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
+    }
     size_t num_added=0;
     for (const auto& dsid : dsids) {
 	std::string fname=LOCAL_WAF+"/waf-ds"+dsid+".xml";
@@ -200,20 +280,14 @@ void do_push(const std::deque<std::string>& arg_list)
     }
     if (num_added > 0) {
 	std::stringstream oss,ess;
-	unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git pull -q\"",oss,ess);
+	unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git commit -m 'auto update' -a\"",oss,ess);
 	if (!ess.str().empty()) {
-	  metautils::log_error("git pull error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
+	  metautils::log_error("git commit error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
 	}
 	else {
-	  unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git commit -m 'auto update' -a\"",oss,ess);
+	  unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git push -q\"",oss,ess);
 	  if (!ess.str().empty()) {
-	    metautils::log_error("git commit error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
-	  }
-	  else {
-	    unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git push -q\"",oss,ess);
-	    if (!ess.str().empty()) {
-		metautils::log_error("git push error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
-	    }
+	    metautils::log_error("git push error: '"+ess.str()+"'; uflag was '"+uflag+"'","dset_waf",user);
 	  }
 	}
     }
@@ -224,6 +298,12 @@ void do_push(const std::deque<std::string>& arg_list)
     }
   }
   server.disconnect();
+  for (const auto& repo : local_args.git_repos) {
+    std::stringstream oss,ess;
+    while (ess.str().empty()) {
+	unixutils::mysystem2("/bin/tcsh -c \"cd "+REPO_HEAD+"/"+repo+"; git stash drop 'stash@{0}'\"",oss,ess);
+    }
+  }
 }
 
 void do_delete(const std::deque<std::string>& arg_list)
