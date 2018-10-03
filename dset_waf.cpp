@@ -82,6 +82,14 @@ public:
   std::string parse_error;
 };
 
+extern "C" void segv_handler(int)
+{
+  std::stringstream oss,ess;
+  unixutils::mysystem2("/bin/tcsh -c \"/gpfs/u/home/dattore/bin/vm/dset_waf DBRESET\"",oss,ess);
+  std::cout << "Database was reset for the next update" << std::endl;
+}
+
+
 extern "C" void *run_timer(void *tts)
 {
   TimerThreadStruct *t=(TimerThreadStruct *)tts;
@@ -377,14 +385,45 @@ void do_delete(const std::deque<std::string>& arg_list)
   }
 }
 
+void do_db_reset(const std::deque<std::string>& arg_list)
+{
+  MySQL::Server server(meta_directives.database_server,"metadata","metadata","");
+  MySQL::LocalQuery query("distinct dsid","metautil.dset_waf");
+  if (query.submit(server) < 0) {
+    metautils::log_error("Database error while trying to fix a failed push: '"+query.error()+"'","dset_waf",user);
+    exit(1);
+  }
+  if (server._delete("metautil.dset_waf") < 0) {
+    metautils::log_error("Database error while trying to clear a failed push: '"+server.error()+"'","dset_waf",user);
+    exit(1);
+  }
+  MySQL::Row row;
+  auto status=0;
+  std::stringstream dslist;
+  while (query.fetch_row(row)) {
+    if (!dslist.str().empty()) {
+	dslist << ", ";
+    }
+    dslist << row[0];
+    if (server.insert("metautil.dset_waf","'"+row[0]+"',''") < 0) {
+	status=-1;
+    }
+  }
+  if (status < 0) {
+    metautils::log_error("Database error while trying to clear a failed push - dataset list: '"+dslist.str()+"'","dset_waf",user);
+    exit(1);
+  }
+}
+
 int main(int argc,char **argv)
 {
-  if (argc < 3) {
+  if (argc < 3 && (argc != 2 || std::string(argv[1]) != "DBRESET")) {
     std::cerr << "usage: dset_waf <action> [options...] <dslist>" << std::endl;
     std::cerr << "\nrequired:" << std::endl;
     std::cerr << "<action>  must be one of:" << std::endl;
     std::cerr << "            PUSH - add/update dataset(s)" << std::endl;
     std::cerr << "            DELETE - remove dataset(s)" << std::endl;
+    std::cerr << "            DBRESET - reset the database after a failed push" << std::endl;
     std::cerr << "<dslist>  must be one of:" << std::endl;
     std::cerr << "            \"all\" for all datasets" << std::endl;
     std::cerr << "            \"nnn.n ...\" one or more individual dataset numbers" << std::endl;
@@ -418,7 +457,7 @@ int main(int argc,char **argv)
 	break;
     }
   }
-  if (arg_list.size() == 0) {
+  if (action != "DBRESET" && arg_list.size() == 0) {
     std::cerr << "Error: no dataset(s) specified" << std::endl;
     exit(1);
   }
@@ -426,12 +465,16 @@ int main(int argc,char **argv)
     local_args.git_repos.emplace_back("dset-web-accessible-folder-dev/rda");
     local_args.git_repos.emplace_back("dash-rda-prod");
   }
+//  signal(SIGSEGV,segv_handler);
   metautils::read_config("dset_waf","","");
   if (action == "PUSH") {
     do_push(arg_list);
   }
   else if (action == "DELETE") {
     do_delete(arg_list);
+  }
+  else if (action == "DBRESET") {
+    do_db_reset(arg_list);
   }
   else {
     std::cerr << "Error: invalid action" << std::endl;
