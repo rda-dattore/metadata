@@ -19,8 +19,8 @@
 #include <tokendoc.hpp>
 #include <myerror.hpp>
 
-metautils::Directives meta_directives;
-metautils::Args meta_args;
+metautils::Directives metautils::directives;
+metautils::Args metautils::args;
 std::string myerror="";
 std::string mywarning="";
 
@@ -141,7 +141,7 @@ parser->setExternalSchemaLocation("http://www.isotc211.org/2005/gmd /usr/local/w
 
 void do_push(const std::deque<std::string>& arg_list)
 {
-  MySQL::Server server(meta_directives.database_server,"metadata","metadata","");
+  MySQL::Server server(metautils::directives.database_server,"metadata","metadata","");
   std::unordered_set<std::string> work_in_progress_datasets,queued_datasets;
   if (local_args.queued_only) {
     MySQL::LocalQuery query("dsid","search.datasets","type = 'W'");
@@ -318,7 +318,7 @@ void do_delete(const std::deque<std::string>& arg_list)
 {
   std::vector<std::string> dsids;
   if (local_args.all_non_public) {
-    MySQL::Server server(meta_directives.database_server,"metadata","metadata","");
+    MySQL::Server server(metautils::directives.database_server,"metadata","metadata","");
     MySQL::LocalQuery query("dsid","search.datasets","!find_in_set(type,'P,H')");
     if (query.submit(server) < 0) {
 	metautils::log_error("Database error while getting non-public datasets: '"+query.error()+"'","dset_waf",user);
@@ -387,7 +387,7 @@ void do_delete(const std::deque<std::string>& arg_list)
 
 void do_db_reset(const std::deque<std::string>& arg_list)
 {
-  MySQL::Server server(meta_directives.database_server,"metadata","metadata","");
+  MySQL::Server server(metautils::directives.database_server,"metadata","metadata","");
   MySQL::LocalQuery query("distinct dsid","metautil.dset_waf");
   if (query.submit(server) < 0) {
     metautils::log_error("Database error while trying to fix a failed push: '"+query.error()+"'","dset_waf",user);
@@ -435,8 +435,8 @@ int main(int argc,char **argv)
     std::cerr << "--all-non-public  identify and delete all non-public datasets" << std::endl;
     exit(1);
   }
-  meta_args.args_string=unixutils::unix_args_string(argc,argv,'%');
-  auto arg_list=strutils::split(meta_args.args_string,"%");
+  metautils::args.args_string=unixutils::unix_args_string(argc,argv,'%');
+  auto arg_list=strutils::split(metautils::args.args_string,"%");
   auto action=arg_list.front();
   arg_list.pop_front();
   while (arg_list.size() > 0) {
