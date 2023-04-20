@@ -541,7 +541,7 @@ void show_orphaned_keywords()
     std::make_tuple("variables","GCMD_sciencekeywords"),
     std::make_tuple("platforms_new","GCMD_platforms"),
     std::make_tuple("contributors_new","GCMD_providers"),
-    std::make_tuple("instruments_new","GCMD_instruments"),
+    std::make_tuple("instruments_new","gcmd_instruments"),
     std::make_tuple("projects_new","GCMD_projects"),
     std::make_tuple("supportedProjects_new","GCMD_projects")
   };
