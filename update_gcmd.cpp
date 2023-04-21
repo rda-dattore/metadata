@@ -596,8 +596,8 @@ void show_orphaned_keywords() {
     make_tuple("platforms_new", "gcmd_platforms"),
     make_tuple("contributors_new", "GCMD_providers"),
     make_tuple("instruments_new", "gcmd_instruments"),
-    make_tuple("projects_new", "GCMD_projects"),
-    make_tuple("supportedProjects_new", "GCMD_projects")
+    make_tuple("projects_new", "gcmd_projects"),
+    make_tuple("supportedProjects_new", "gcmd_projects")
   };
   for (const auto& map : keyword_tables) {
     MySQL::LocalQuery query("select distinct keyword, dsid from search." + std::
