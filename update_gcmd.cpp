@@ -158,9 +158,16 @@ bool passed_date_check() {
   if (update) {
     auto gcmd_update_date = update.element("schemes/scheme@name=" +
         args.concept_scheme).attribute_value("updateDate");
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
     MySQL::LocalQuery q("select update_time from information_schema.tables "
-        "where table_schema = 'search' and table_name = 'GCMD_" + args.
-        concept_scheme + "'");
+//        "where table_schema = 'search' and table_name = 'GCMD_" + args.
+"where table_schema = 'search' and table_name = '" + tbl + "'");
+//        concept_scheme + "'");
     if (q.submit(args.server) == 0 && q.num_rows() == 1) {
       MySQL::Row row;
       q.fetch_row(row);
@@ -394,7 +401,7 @@ void update_keywords() {
         } else {
           string column_list, values_list;
           if (args.concept_scheme == "platforms") {
-            column_list = "(uuid, last_in_path, path, ObML_platformType, "
+            column_list = "(uuid, last_in_path, path, obml_platform_type, "
                 "cflag, dflag)";
             values_list = "'" + p->first + "', '" + sql_ready(std::get<0>(p->
                 second)) + "', '" + sql_ready(std::get<1>(p->second)) + "', '" +
@@ -407,8 +414,16 @@ void update_keywords() {
                 "', DEFAULT, '" + args.delete_flag + "'";
           }
           string result;
-          if (args.server.command("insert into search.GCMD_" + args.
-              concept_scheme + " " + column_list + " values (" + values_list +
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
+//          if (args.server.command("insert into search.GCMD_" + args.
+if (args.server.command("insert into search." + tbl
+//              concept_scheme + " " + column_list + " values (" + values_list +
++ " " + column_list + " values (" + values_list +
               ") on duplicate key update cflag=if(cflag=9, 9, if(last_in_path="
               "values(last_in_path) and path=values(path), 0, 2)), last_in_path"
               "=values(last_in_path), path=values(path), dflag=values(dflag)",
@@ -541,8 +556,16 @@ void update_rda_keywords() {
       }
     }
   }
-  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-      concept_scheme + " where cflag = 1 and dflag = '" + args.delete_flag +
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
+//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
+MySQL::LocalQuery query("select uuid, path from search." + tbl
+//      concept_scheme + " where cflag = 1 and dflag = '" + args.delete_flag +
++ " where cflag = 1 and dflag = '" + args.delete_flag +
       "' and uuid like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
@@ -570,7 +593,7 @@ void update_rda_keywords() {
 void show_orphaned_keywords() {
   vector<tuple<string, string>> keyword_tables{
     make_tuple("variables", "GCMD_sciencekeywords"),
-    make_tuple("platforms_new", "GCMD_platforms"),
+    make_tuple("platforms_new", "gcmd_platforms"),
     make_tuple("contributors_new", "GCMD_providers"),
     make_tuple("instruments_new", "gcmd_instruments"),
     make_tuple("projects_new", "GCMD_projects"),
