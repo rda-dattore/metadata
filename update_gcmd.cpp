@@ -236,8 +236,8 @@ void update_keywords() {
   }
   vector<tuple<string, size_t, regex, string>> search_re_list;
   if (args.concept_scheme == "platforms") {
-    MySQL::LocalQuery query("search_regexp, ObML_platformType", "search."
-        "GCMD_platforms_to_RDA");
+    MySQL::LocalQuery query("search_regexp, obml_platform_type", "search."
+        "gcmd_platforms_to_rda");
     if (query.submit(args.server) == 0) {
       for (const auto& row : query) {
         search_re_list.emplace_back(make_tuple(row[0], occurs(row[0], ", ") + 1,
