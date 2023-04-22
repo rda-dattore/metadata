@@ -441,7 +441,7 @@ if (args.server.command("insert into search." + tbl
     ++page_num;
   }
   string result;
-  if (args.server.command("insert into search.GCMD_versions values ('" + args.
+  if (args.server.command("insert into search.gcmd_versions values ('" + args.
       concept_scheme + "', '" + version + "', '" + revision_date + "') on "
       "duplicate key update version=values(version), revision_date=values("
       "revision_date)", result) < 0) {
