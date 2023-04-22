@@ -613,7 +613,7 @@ void show_orphaned_keywords() {
     make_tuple("variables", "GCMD_sciencekeywords"),
     make_tuple("platforms_new", "gcmd_platforms"),
     make_tuple("contributors_new", "gcmd_providers"),
-    make_tuple("instruments_new", "gcmd_instruments"),
+    make_tuple("instruments", "gcmd_instruments"),
     make_tuple("projects_new", "gcmd_projects"),
     make_tuple("supportedProjects_new", "gcmd_projects")
   };
