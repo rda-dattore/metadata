@@ -461,8 +461,16 @@ if (args.server.command("insert into search." + tbl
 }
 
 void clean_keywords() {
-  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-      concept_scheme + " where dflag != '" + args.delete_flag + "' and uuid "
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
+//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
+MySQL::LocalQuery query("select uuid, path from search." + tbl
+//      concept_scheme + " where dflag != '" + args.delete_flag + "' and uuid "
++ " where dflag != '" + args.delete_flag + "' and uuid "
       "not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
@@ -489,8 +497,16 @@ void clean_keywords() {
 }
 
 void show_changed_keywords() {
-  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-      concept_scheme + " where cflag = 2 and uuid not like 'RDA%'");
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
+//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
+MySQL::LocalQuery query("select uuid, path from search." + tbl
+//      concept_scheme + " where cflag = 2 and uuid not like 'RDA%'");
++ " where cflag = 2 and uuid not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
       cout << "No GCMD keywords were changed in this update" << endl;
@@ -511,7 +527,8 @@ void show_changed_keywords() {
     cerr << query.error() << endl;
     exit(1);
   }
-  query.set("select uuid, path from search.GCMD_" + args.concept_scheme +
+//  query.set("select uuid, path from search.GCMD_" + args.concept_scheme +
+query.set("select uuid, path from search." + tbl +
       " where cflag = 1 and uuid not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
@@ -536,13 +553,20 @@ void show_changed_keywords() {
 }
 
 void update_rda_keywords() {
+
+// patch until all table names have been changed
+auto tbl = "GCMD_" + args.concept_scheme;
+if (!MySQL::table_exists(args.server, "search." + tbl)) {
+tbl = "gcmd_" + args.concept_scheme;
+}
   for (auto p : args.rda_keywords) {
     if (p.second == 1) {
 
       // add the keyword
       auto parts = split(p.first, " > ");
       string result;
-      if (args.server.command("insert into search.GCMD_" + args.concept_scheme +
+//      if (args.server.command("insert into search.GCMD_" + args.concept_scheme +
+if (args.server.command("insert into search." + tbl +
           " (uuid, last_in_path, path, cflag, dflag) values ('RDA" + strutils::
           uuid_gen().substr(3) + "', '" + sql_ready(parts.back()) + "', '" +
           sql_ready(p.first) + "', DEFAULT, '" + args.delete_flag + "') on "
@@ -556,12 +580,6 @@ void update_rda_keywords() {
       }
     }
   }
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
 //  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
 MySQL::LocalQuery query("select uuid, path from search." + tbl
 //      concept_scheme + " where cflag = 1 and dflag = '" + args.delete_flag +
