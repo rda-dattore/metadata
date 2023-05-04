@@ -610,7 +610,7 @@ MySQL::LocalQuery query("select uuid, path from search." + tbl
 
 void show_orphaned_keywords() {
   vector<tuple<string, string>> keyword_tables{
-    make_tuple("variables", "GCMD_sciencekeywords"),
+    make_tuple("variables", "gcmd_sciencekeywords"),
     make_tuple("platforms_new", "gcmd_platforms"),
     make_tuple("contributors_new", "gcmd_providers"),
     make_tuple("instruments", "gcmd_instruments"),
