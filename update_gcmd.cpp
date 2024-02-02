@@ -6,9 +6,10 @@
 #include <utils.hpp>
 #include <strutils.hpp>
 #include <xml.hpp>
-#include <MySQL.hpp>
+#include <PostgreSQL.hpp>
 #include <datetime.hpp>
 
+using namespace PostgreSQL;
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -26,6 +27,7 @@ using std::vector;
 using strutils::occurs;
 using strutils::replace_all;
 using strutils::split;
+using strutils::sql_ready;
 using strutils::substitute;
 using strutils::trim;
 using unixutils::mysystem2;
@@ -43,7 +45,7 @@ const string PASSWORD = "8F5uXZ6b";
 const string KMS_API_URL = "https://gcmd.earthdata.nasa.gov/kms";
 
 struct Args {
-  Args() : server("rda-db.ucar.edu", "metadata", "metadata", ""),
+  Args() : server("rda-db.ucar.edu", "metadata", "metadata", "rdadb"),
       concept_scheme(), alias(), delete_flag(strutils::strand(3)),
       concept_schemes(), rda_keywords(), force_update(false), no_gcmd_update(
       false) {
@@ -68,7 +70,7 @@ struct Args {
     concept_schemes.emplace("sciencekeywords", make_tuple(0, 5, 4, false));
   }
 
-  MySQL::Server server;
+  Server server;
   string concept_scheme, alias, delete_flag;
   unordered_map<string, tuple<size_t, size_t, size_t, bool>> concept_schemes;
 
@@ -79,10 +81,6 @@ struct Args {
   unordered_map<string, short> rda_keywords;
   bool force_update, no_gcmd_update;
 } args;
-
-string sql_ready(const string& s) {
-  return substitute(s, "'", "\\'");
-}
 
 void parse_args(int argc, char **argv) {
   if (argc < 2) {
@@ -140,6 +138,7 @@ void parse_args(int argc, char **argv) {
 }
 
 bool passed_date_check() {
+/*
   stringstream oss, ess;
   mysystem2("/bin/sh -c 'curl -k -s -S -o - \"" + KMS_API_URL +
       "/concept_schemes\"'", oss, ess);
@@ -158,18 +157,11 @@ bool passed_date_check() {
   if (update) {
     auto gcmd_update_date = update.element("schemes/scheme@name=" +
         args.concept_scheme).attribute_value("updateDate");
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
-    MySQL::LocalQuery q("select update_time from information_schema.tables "
-//        "where table_schema = 'search' and table_name = 'GCMD_" + args.
-"where table_schema = 'search' and table_name = '" + tbl + "'");
-//        concept_scheme + "'");
+    auto tbl = "gcmd_" + args.concept_scheme;
+    LocalQuery q("select update_time from information_schema.tables where "
+        "table_schema = 'search' and table_name = '" + tbl + "'");
     if (q.submit(args.server) == 0 && q.num_rows() == 1) {
-      MySQL::Row row;
+      Row row;
       q.fetch_row(row);
       auto update_time = row[0];
       if (update_time.empty()) {
@@ -198,6 +190,7 @@ tbl = "gcmd_" + args.concept_scheme;
     cerr << "Error parsing updates: " << update.parse_error() << endl;
     exit(1);
   }
+*/
   return true;
 }
 
@@ -236,7 +229,7 @@ void update_keywords() {
   }
   vector<tuple<string, size_t, regex, string>> search_re_list;
   if (args.concept_scheme == "platforms") {
-    MySQL::LocalQuery query("search_regexp, obml_platform_type", "search."
+    LocalQuery query("search_regexp, obml_platform_type", "search."
         "gcmd_platforms_to_rda");
     if (query.submit(args.server) == 0) {
       for (const auto& row : query) {
@@ -401,33 +394,30 @@ void update_keywords() {
         } else {
           string column_list, values_list;
           if (args.concept_scheme == "platforms") {
-            column_list = "(uuid, last_in_path, path, obml_platform_type, "
-                "cflag, dflag)";
+            column_list = "uuid, last_in_path, path, obml_platform_type, "
+                "cflag, dflag";
             values_list = "'" + p->first + "', '" + sql_ready(std::get<0>(p->
                 second)) + "', '" + sql_ready(std::get<1>(p->second)) + "', '" +
                 sql_ready(std::get<2>(p->second)) + "', DEFAULT, '" + args.
                 delete_flag + "'";
           } else {
-            column_list = "(uuid, last_in_path, path, cflag, dflag)";
+            column_list = "uuid, last_in_path, path, cflag, dflag";
             values_list = "'" + p->first + "', '" + sql_ready(std::get<0>(p->
                 second)) + "', '" + sql_ready(std::get<1>(p->second)) +
                 "', DEFAULT, '" + args.delete_flag + "'";
           }
-          string result;
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
-//          if (args.server.command("insert into search.GCMD_" + args.
-if (args.server.command("insert into search." + tbl
-//              concept_scheme + " " + column_list + " values (" + values_list +
-+ " " + column_list + " values (" + values_list +
-              ") on duplicate key update cflag=if(cflag=9, 9, if(last_in_path="
-              "values(last_in_path) and path=values(path), 0, 2)), last_in_path"
-              "=values(last_in_path), path=values(path), dflag=values(dflag)",
-              result) < 0) {
+          auto tbl = "gcmd_" + args.concept_scheme;
+          if (args.server.insert(
+                "search." + tbl,
+                column_list,
+                values_list,
+                "on constraint " + tbl + "_pkey do update set cflag = case "
+                    "when " + tbl + ".cflag = 9 then 9 when " + tbl +
+                    ".last_in_path = excluded.last_in_path and " + tbl +
+                    ".path = excluded.path then 0 else 2 end, last_in_path = "
+                    "excluded.last_in_path, path = excluded.path, dflag = "
+                    "excluded.dflag"
+                ) < 0) {
             cerr << "Error while inserting " << p->first << endl;
             cerr << args.server.error() << endl;
             exit(1);
@@ -440,11 +430,14 @@ if (args.server.command("insert into search." + tbl
     }
     ++page_num;
   }
-  string result;
-  if (args.server.command("insert into search.gcmd_versions values ('" + args.
-      concept_scheme + "', '" + version + "', '" + revision_date + "') on "
-      "duplicate key update version=values(version), revision_date=values("
-      "revision_date)", result) < 0) {
+  if (args.server.insert(
+        "search.gcmd_versions",
+        "concept_scheme, version, revision_date",
+        "'" + args.concept_scheme + "', '" + version + "', '" + revision_date +
+            "'",
+        "on constraint gcmd_versions_pkey do update set version = excluded."
+            "version, revision_date = excluded.revision_date"
+        ) < 0) {
     cerr << "Error updating version number" << endl;
     cerr << args.server.error() << endl;
     exit(1);
@@ -461,17 +454,9 @@ if (args.server.command("insert into search." + tbl
 }
 
 void clean_keywords() {
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
-//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-MySQL::LocalQuery query("select uuid, path from search." + tbl
-//      concept_scheme + " where dflag != '" + args.delete_flag + "' and uuid "
-+ " where dflag != '" + args.delete_flag + "' and uuid "
-      "not like 'RDA%'");
+  auto tbl = "gcmd_" + args.concept_scheme;
+  LocalQuery query("select uuid, path from search." + tbl + " where dflag != '"
+      + args.delete_flag + "' and uuid not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
       cout << "No GCMD keywords were deleted in this update" << endl;
@@ -497,16 +482,9 @@ MySQL::LocalQuery query("select uuid, path from search." + tbl
 }
 
 void show_changed_keywords() {
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
-//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-MySQL::LocalQuery query("select uuid, path from search." + tbl
-//      concept_scheme + " where cflag = 2 and uuid not like 'RDA%'");
-+ " where cflag = 2 and uuid not like 'RDA%'");
+  auto tbl = "gcmd_" + args.concept_scheme;
+  LocalQuery query("select uuid, path from search." + tbl + " where cflag = 2 "
+      "and uuid not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
       cout << "No GCMD keywords were changed in this update" << endl;
@@ -527,9 +505,8 @@ MySQL::LocalQuery query("select uuid, path from search." + tbl
     cerr << query.error() << endl;
     exit(1);
   }
-//  query.set("select uuid, path from search.GCMD_" + args.concept_scheme +
-query.set("select uuid, path from search." + tbl +
-      " where cflag = 1 and uuid not like 'RDA%'");
+  query.set("select uuid, path from search." + tbl + " where cflag = 1 and "
+      "uuid not like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
       cout << "No GCMD keywords were added in this update" << endl;
@@ -553,38 +530,33 @@ query.set("select uuid, path from search." + tbl +
 }
 
 void update_rda_keywords() {
-
-// patch until all table names have been changed
-auto tbl = "GCMD_" + args.concept_scheme;
-if (!MySQL::table_exists(args.server, "search." + tbl)) {
-tbl = "gcmd_" + args.concept_scheme;
-}
+  auto tbl = "gcmd_" + args.concept_scheme;
   for (auto p : args.rda_keywords) {
     if (p.second == 1) {
 
       // add the keyword
       auto parts = split(p.first, " > ");
       string result;
-//      if (args.server.command("insert into search.GCMD_" + args.concept_scheme +
-if (args.server.command("insert into search." + tbl +
-          " (uuid, last_in_path, path, cflag, dflag) values ('RDA" + strutils::
-          uuid_gen().substr(3) + "', '" + sql_ready(parts.back()) + "', '" +
-          sql_ready(p.first) + "', DEFAULT, '" + args.delete_flag + "') on "
-          "duplicate key update cflag=if(cflag=9, 9, if(last_in_path=values("
-          "last_in_path) and path=values(path), 0, 2)), last_in_path=values("
-          "last_in_path), path=values(path), dflag=values(dflag)", result) <
-          0) {
+      if (args.server.insert(
+            "search." + tbl,
+            "uuid, last_in_path, path, cflag, dflag",
+            "'RDA" + strutils::uuid_gen().substr(3) + "', '" + sql_ready(parts.
+                back()) + "', '" + sql_ready(p.first) + "', DEFAULT, '" + args.
+                delete_flag + "'",
+            "on constraint " + tbl + "_pkey do update set cflag = case when " +
+                tbl + ".cflag = 9 then 9 when " + tbl + ".last_in_path = "
+                "excluded.last_in_path and " + tbl + ".path = excluded.path "
+                "then 0 else 2 end, last_in_path = excluded.last_in_path, path "
+                "= excluded.path, dflag = excluded.dflag"
+            ) < 0) {
         cerr << "Error while inserting " << p.first << endl;
         cerr << args.server.error() << endl;
         exit(1);
       }
     }
   }
-//  MySQL::LocalQuery query("select uuid, path from search.GCMD_" + args.
-MySQL::LocalQuery query("select uuid, path from search." + tbl
-//      concept_scheme + " where cflag = 1 and dflag = '" + args.delete_flag +
-+ " where cflag = 1 and dflag = '" + args.delete_flag +
-      "' and uuid like 'RDA%'");
+  LocalQuery query("select uuid, path from search." + tbl + " where cflag = 1 "
+      "and dflag = '" + args.delete_flag + "' and uuid like 'RDA%'");
   if (query.submit(args.server) == 0) {
     if (query.num_rows() == 0) {
       cout << "No RDA keywords were added in this update" << endl;
@@ -615,12 +587,12 @@ void show_orphaned_keywords() {
     make_tuple("contributors_new", "gcmd_providers"),
     make_tuple("instruments", "gcmd_instruments"),
     make_tuple("projects_new", "gcmd_projects"),
-    make_tuple("supportedProjects_new", "gcmd_projects")
+    make_tuple("supported_projects", "gcmd_projects")
   };
   for (const auto& map : keyword_tables) {
-    MySQL::LocalQuery query("select distinct keyword, dsid from search." + std::
+    LocalQuery query("select distinct keyword, dsid from search." + std::
         get<0>(map) + " as k left join search." + std::get<1>(map) + " as g on "
-        "g.uuid = k.keyword where k.vocabulary = 'GCMD' and isnull(g.uuid) "
+        "g.uuid = k.keyword where k.vocabulary = 'GCMD' and g.uuid is null "
         "order by dsid, keyword");
     if (query.submit(args.server) == 0) {
       for (const auto& row : query) {
