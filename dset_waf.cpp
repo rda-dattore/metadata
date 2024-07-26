@@ -105,43 +105,40 @@ public:
 };
 
 extern "C" void segv_handler(int) {
-  stringstream oss,ess;
+  stringstream oss, ess;
   mysystem2("/bin/tcsh -c \"/gpfs/u/home/dattore/bin/vm/dset_waf DBRESET\"",
       oss, ess);
   cout << "Database was reset for the next update" << endl;
 }
 
-
 extern "C" void *run_timer(void *tts)
 {
-  TimerThreadStruct *t=(TimerThreadStruct *)tts;
-  t->timed_out=false;
+  TimerThreadStruct *t = (TimerThreadStruct *)tts;
+  t->timed_out = false;
   sleep(t->timeout);
-  t->timed_out=true;
+  t->timed_out = true;
   pthread_cancel(t->validator_tid);
   return nullptr;
 }
 
-extern "C" void *run_validator(void *vts)
-{
-  ValidatorThreadStruct *t=(ValidatorThreadStruct *)vts;
-  static XercesDOMParser *parser=nullptr;
+extern "C" void *run_validator(void *vts) {
+  ValidatorThreadStruct *t = (ValidatorThreadStruct *)vts;
+  static XercesDOMParser *parser = nullptr;
   static ParserErrorHandler *parserErrorHandler;
   if (parser == nullptr) {
     XMLPlatformUtils::Initialize();
-    parser=new XercesDOMParser;
-    parserErrorHandler=new ParserErrorHandler;
+    parser = new XercesDOMParser;
+    parserErrorHandler = new ParserErrorHandler;
     parser->setValidationScheme(XercesDOMParser::Val_Auto);
     parser->setDoNamespaces(true);
     parser->setDoSchema(true);
     parser->setValidationConstraintFatal(true);
     parser->cacheGrammarFromParse(true);
     parser->setErrorHandler(parserErrorHandler);
-  }
-  else if (t->load_alternate_schema) {
+  } else if (t->load_alternate_schema) {
     delete parser;
-    parser=new XercesDOMParser;
-    parserErrorHandler=new ParserErrorHandler;
+    parser = new XercesDOMParser;
+    parserErrorHandler = new ParserErrorHandler;
     parser->setValidationScheme(XercesDOMParser::Val_Auto);
     parser->setDoNamespaces(true);
     parser->setDoSchema(true);
@@ -150,12 +147,12 @@ extern "C" void *run_validator(void *vts)
     parser->setErrorHandler(parserErrorHandler);
 parser->setExternalSchemaLocation("http://www.isotc211.org/2005/gmd /usr/local/www/server_root/web/metadata/schemas/iso/gmd/gmd.xsd");
   }
-  parserErrorHandler->parse_error="";
+  parserErrorHandler->parse_error = "";
   parser->parse(t->file_name.c_str());
   if (parserErrorHandler->parse_error.empty()) {
     t->parse_error = "";
   } else {
-    t->parse_error=parserErrorHandler->parse_error;
+    t->parse_error = parserErrorHandler->parse_error;
 /*
 // patch to ignore timestamp failures that are not real
 if (t->parse_error.find("Z' does not match any member types of the union") != string::npos) {
@@ -430,8 +427,8 @@ void do_delete(const deque<string>& arg_list) {
       mysystem2("/bin/tcsh -c \"cd " + REPO_HEAD + "/" + repo + "; git rm ds" +
           dsid + ".xml\"", oss, ess);
       if (!ess.str().empty()) {
-        if (ess.str() != "fatal: pathspec 'ds"+dsid+".xml' did not match any "
-            "files\n") {
+        if (ess.str() != "fatal: pathspec 'ds" + dsid + ".xml' did not match "
+            "any files\n") {
           log_warning("git rm error for " + dsid + ": '" + ess.str() + "'",
               "dset_waf", USER);
         }
@@ -537,7 +534,7 @@ int main(int argc, char **argv) {
     local_args.git_repos.emplace_back("dset-web-accessible-folder-dev/rda");
     local_args.git_repos.emplace_back("dash-rda-prod/RDA-Datasets");
   }
-//  signal(SIGSEGV,segv_handler);
+//  signal(SIGSEGV, segv_handler);
   metautils::read_config("dset_waf", "", "");
   if (action == "PUSH") {
     do_push(arg_list);
