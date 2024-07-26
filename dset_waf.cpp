@@ -53,53 +53,49 @@ string mywarning = "";
 const string USER = getenv("USER");
 
 struct LocalArgs {
-  LocalArgs() : git_repos(),queued_only(false),all_non_public(false) {}
+  LocalArgs() : git_repos(), queued_only(false), all_non_public(false) { }
 
   vector<string> git_repos;
-  bool queued_only,all_non_public;
+  bool queued_only, all_non_public;
 } local_args;
+
 struct TimerThreadStruct {
-  TimerThreadStruct() : timeout(0),tid(0),validator_tid(),timed_out() {}
+  TimerThreadStruct() : timeout(0), tid(0), validator_tid(), timed_out() { }
 
   size_t timeout;
-  pthread_t tid,validator_tid;
+  pthread_t tid, validator_tid;
   bool timed_out;
 };
-struct ValidatorThreadStruct {
-  ValidatorThreadStruct() : file_name(),uflag(),parse_error(),tid(0),load_alternate_schema(false) {}
 
-  string file_name,uflag,parse_error;
+struct ValidatorThreadStruct {
+  ValidatorThreadStruct() : file_name(), uflag(), parse_error(), tid(0),
+      load_alternate_schema(false) { }
+
+  string file_name, uflag, parse_error;
   pthread_t tid;
   bool load_alternate_schema;
 };
 
-class ParserErrorHandler : public ErrorHandler
-{
+class ParserErrorHandler : public ErrorHandler {
 public:
-  ParserErrorHandler() : parse_error() {}
+  ParserErrorHandler() : parse_error() { }
 
   void warning(const SAXParseException& e) {
-    char *msg=XMLString::transcode(e.getMessage());
-    if (!parse_error.empty()) {
-      parse_error+="\n";
-    }
-    parse_error+="Warning ("+to_string(e.getLineNumber())+":"+to_string(e.getColumnNumber())+"): "+string(msg);
+    char *msg = XMLString::transcode(e.getMessage());
+    append(parse_error, "Warning (" + to_string(e.getLineNumber()) + ":" +
+        to_string(e.getColumnNumber()) + "): " + string(msg), "\n");
     XMLString::release(&msg);
   }
   void error(const SAXParseException& e) {
-    char *msg=XMLString::transcode(e.getMessage());
-    if (!parse_error.empty()) {
-      parse_error+="\n";
-    }
-    parse_error+="Error ("+to_string(e.getLineNumber())+":"+to_string(e.getColumnNumber())+"): "+string(msg);
+    char *msg = XMLString::transcode(e.getMessage());
+    append(parse_error, "Error (" + to_string(e.getLineNumber()) + ":" +
+        to_string(e.getColumnNumber()) + "): " + string(msg), "\n");
     XMLString::release(&msg);
   }
   void fatalError(const SAXParseException& e) {
-    char *msg=XMLString::transcode(e.getMessage());
-    if (!parse_error.empty()) {
-      parse_error+="\n";
-    }
-    parse_error+="Fatal error ("+to_string(e.getLineNumber())+":"+to_string(e.getColumnNumber())+"): "+string(msg);
+    char *msg = XMLString::transcode(e.getMessage());
+    append(parse_error, "Fatal error (" + to_string(e.getLineNumber()) + ":" +
+        to_string(e.getColumnNumber()) + "): " + string(msg), "\n");
     XMLString::release(&msg);
   }
   void resetErrors() {
